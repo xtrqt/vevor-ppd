@@ -11,7 +11,7 @@ OBJ = $(SRC:.c=.o)
 TARGET = rastertolabel
 DESTDIR = /Library/Printers/VevorPrinter300/Filter
 
-all: $(TARGET) install start
+all: $(TARGET)
 
 $(TARGET): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)
