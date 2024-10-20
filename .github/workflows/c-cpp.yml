@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: install deps
-      run: apt-get install libcups2-dev libcupsimage2-dev
+      run: sudo apt-get install libcups2-dev libcupsimage2-dev
     - name: make
       run: make
     - uses: actions/upload-artifact@v4
