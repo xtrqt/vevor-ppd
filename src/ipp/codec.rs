@@ -1,10 +1,11 @@
 use super::model::{IppRequest, Operation, Status, ValueTag};
 use anyhow::{bail, ensure, Result};
 
+const TAG_END: u8 = 0x03;
 const TAG_OPERATION_ATTRIBUTES: u8 = 0x01;
 const TAG_JOB_ATTRIBUTES: u8 = 0x02;
 const TAG_PRINTER_ATTRIBUTES: u8 = 0x04;
-const TAG_END: u8 = 0x03;
+const TAG_UNSUPPORTED_ATTRIBUTES: u8 = 0x05;
 
 pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
     ensure!(bytes.len() >= 8, "IPP request is too short");
@@ -23,7 +24,13 @@ pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
 
         let tag = bytes[cursor];
         cursor += 1;
-        if matches!(tag, TAG_OPERATION_ATTRIBUTES | TAG_PRINTER_ATTRIBUTES) {
+        if matches!(
+            tag,
+            TAG_OPERATION_ATTRIBUTES
+                | TAG_JOB_ATTRIBUTES
+                | TAG_PRINTER_ATTRIBUTES
+                | TAG_UNSUPPORTED_ATTRIBUTES
+        ) {
             continue;
         }
 
@@ -170,5 +177,21 @@ mod tests {
         assert_eq!(request.operation, Operation::PrintJob);
         assert_eq!(request.request_id, 7);
         assert_eq!(request.document, b"doc");
+    }
+
+    #[test]
+    fn parses_request_with_job_attributes_group() {
+        let mut bytes = vec![0x02, 0x00, 0x00, 0x05, 0, 0, 0, 21, TAG_JOB_ATTRIBUTES];
+        bytes.push(ValueTag::NameWithoutLanguage as u8);
+        bytes.extend_from_slice(&8u16.to_be_bytes());
+        bytes.extend_from_slice(b"job-name");
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        bytes.extend_from_slice(b"test");
+        bytes.push(TAG_END);
+
+        let request = parse_request(&bytes).expect("parse request");
+        assert_eq!(request.operation, Operation::CreateJob);
+        assert_eq!(request.request_id, 21);
+        assert!(request.document.is_empty());
     }
 }
