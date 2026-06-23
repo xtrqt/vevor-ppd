@@ -8,6 +8,8 @@ if [ "${ENABLE_AVAHI_PUBLISH:-false}" = "true" ]; then
   uuid="${BONJOUR_UUID:-8a8a9a2d-43dc-4c7f-8fd3-0e4f03000001}"
 
   avahi-publish-service \
+    --subtype=_universal._sub._ipp._tcp \
+    --subtype=_print._sub._ipp._tcp \
     "$service_name" \
     _ipp._tcp \
     "$port" \
@@ -16,7 +18,10 @@ if [ "${ENABLE_AVAHI_PUBLISH:-false}" = "true" ]; then
     rp=ipp/print \
     "ty=${PRINTER_NAME:-Vevor Label Printer 300}" \
     'product=(Vevor Label Printer 300)' \
-    pdl=image/pwg-raster \
+    pdl=application/pdf,image/urf,image/pwg-raster \
+    URF=CP1,DM1,IS1-4,MT1-2-8-9-10-11-12-13,OB10,PQ3-4-5,RS300,W8 \
+    kind=document,label \
+    PaperMax=legal-A4 \
     "adminurl=http://${host}:${port}/" \
     "UUID=${uuid}" \
     Color=F \
