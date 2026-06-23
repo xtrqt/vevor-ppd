@@ -1,24 +1,52 @@
-name: CI
+name: Build CUPS Driver
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "**" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "master" ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: install deps
-      run: sudo apt-get install libcups2-dev libcupsimage2-dev
-    - name: make
-      run: make
-    - uses: actions/upload-artifact@v4
-      with:
-          name: dist-without-markdown
-          path: |
-            rastertolabel
-            Vevor\ Label\ Printer\ 300.ppd
-    
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcups2-dev libcupsimage2-dev pkg-config
+
+      - name: Build driver
+        run: make
+
+      - name: Package driver
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="snapshot-${GITHUB_SHA::7}"
+          fi
+
+          package_dir="vevor-ppd-${version}-linux-x86_64"
+
+          mkdir -p "dist/${package_dir}/Filter"
+          install -m 755 rastertolabel "dist/${package_dir}/Filter/rastertolabel"
+          install -m 644 "Vevor Label Printer 300.ppd" "dist/${package_dir}/Vevor Label Printer 300.ppd"
+          tar -C dist -czf "dist/${package_dir}.tar.gz" "${package_dir}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vevor-ppd-linux-x86_64
+          path: dist/*.tar.gz
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
