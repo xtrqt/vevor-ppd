@@ -8,8 +8,8 @@ if [ "${ENABLE_AVAHI_PUBLISH:-false}" = "true" ]; then
   uuid="${BONJOUR_UUID:-8a8a9a2d-43dc-4c7f-8fd3-0e4f03000001}"
 
   avahi-publish-service \
-    --subtype=_universal._sub._ipp._tcp \
-    --subtype=_print._sub._ipp._tcp \
+    --subtype=_universal._sub._ipp._tcp.local \
+    --subtype=_print._sub._ipp._tcp.local \
     "$service_name" \
     _ipp._tcp \
     "$port" \
