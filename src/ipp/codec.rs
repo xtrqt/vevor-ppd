@@ -2,6 +2,7 @@ use super::model::{IppRequest, Operation, Status, ValueTag};
 use anyhow::{bail, ensure, Result};
 
 const TAG_OPERATION_ATTRIBUTES: u8 = 0x01;
+const TAG_JOB_ATTRIBUTES: u8 = 0x02;
 const TAG_PRINTER_ATTRIBUTES: u8 = 0x04;
 const TAG_END: u8 = 0x03;
 
@@ -86,6 +87,11 @@ impl ResponseBuilder {
 
     pub fn printer_attributes(mut self) -> Self {
         self.bytes.push(TAG_PRINTER_ATTRIBUTES);
+        self
+    }
+
+    pub fn job_attributes(mut self) -> Self {
+        self.bytes.push(TAG_JOB_ATTRIBUTES);
         self
     }
 

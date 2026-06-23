@@ -28,7 +28,7 @@ pub async fn handle_ipp(
         Operation::ValidateJob => printer_attributes(&state, &request, Status::SuccessfulOk),
         Operation::GetJobs => printer_attributes(&state, &request, Status::SuccessfulOk),
         Operation::PrintJob => match print_job(&state, &request).await {
-            Ok(()) => printer_attributes(&state, &request, Status::SuccessfulOk),
+            Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
             Err(PrintError::UnsupportedFormat) => printer_attributes(
                 &state,
                 &request,
@@ -39,13 +39,19 @@ pub async fn handle_ipp(
                 printer_attributes(&state, &request, Status::ServerErrorInternalError)
             }
         },
-        Operation::CreateJob
-        | Operation::GetJobAttributes
-        | Operation::SendDocument
-        | Operation::CancelJob => {
-            warn!(operation = ?request.operation, "unsupported IPP operation");
-            printer_attributes(&state, &request, Status::ServerErrorOperationNotSupported)
-        }
+        Operation::CreateJob => job_attributes(&state, &request, Status::SuccessfulOk, 3),
+        Operation::SendDocument => match send_document(&state, &request).await {
+            Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
+            Err(PrintError::UnsupportedFormat) => {
+                job_attributes(&state, &request, Status::SuccessfulOk, 3)
+            }
+            Err(PrintError::Internal(err)) => {
+                error!(error = %err, "send-document failed");
+                job_attributes(&state, &request, Status::ServerErrorInternalError, 9)
+            }
+        },
+        Operation::GetJobAttributes => job_attributes(&state, &request, Status::SuccessfulOk, 9),
+        Operation::CancelJob => job_attributes(&state, &request, Status::SuccessfulOk, 7),
         Operation::Unknown(operation) => {
             warn!(operation, "unsupported IPP operation");
             printer_attributes(&state, &request, Status::ServerErrorOperationNotSupported)
@@ -125,6 +131,10 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
             &[
                 Operation::PrintJob.code(),
                 Operation::ValidateJob.code(),
+                Operation::CreateJob.code(),
+                Operation::SendDocument.code(),
+                Operation::CancelJob.code(),
+                Operation::GetJobAttributes.code(),
                 Operation::GetJobs.code(),
                 Operation::GetPrinterAttributes.code(),
             ],
@@ -164,6 +174,31 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
         .finish()
 }
 
+fn job_attributes(
+    state: &AppState,
+    request: &IppRequest,
+    status: Status,
+    job_state: i32,
+) -> Vec<u8> {
+    let job_id = request.request_id.max(1) as i32;
+    let job_uri = format!("{}/jobs/{}", state.config.printer_uri, job_id);
+
+    ResponseBuilder::new(request, status)
+        .operation_string(ValueTag::Charset, "attributes-charset", "utf-8")
+        .operation_string(
+            ValueTag::NaturalLanguage,
+            "attributes-natural-language",
+            "en",
+        )
+        .job_attributes()
+        .integer(ValueTag::Integer, "job-id", job_id)
+        .string(ValueTag::Uri, "job-uri", &job_uri)
+        .integer(ValueTag::Enum, "job-state", job_state)
+        .string(ValueTag::Keyword, "job-state-reasons", "none")
+        .string(ValueTag::NameWithoutLanguage, "job-name", "Vevor print job")
+        .finish()
+}
+
 async fn print_job(state: &AppState, request: &IppRequest) -> Result<(), PrintError> {
     if request.document.is_empty() {
         return Err(PrintError::UnsupportedFormat);
@@ -186,6 +221,14 @@ async fn print_job(state: &AppState, request: &IppRequest) -> Result<(), PrintEr
     output::write_all(&state.config.output_device, &bytes)
         .await
         .map_err(PrintError::Internal)
+}
+
+async fn send_document(state: &AppState, request: &IppRequest) -> Result<(), PrintError> {
+    if request.document.is_empty() {
+        return Err(PrintError::UnsupportedFormat);
+    }
+
+    print_job(state, request).await
 }
 
 enum PrintError {
