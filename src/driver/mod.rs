@@ -5,14 +5,22 @@ pub struct LabelOptions {
     pub dpi: u16,
     pub darkness: u8,
     pub speed: u8,
+    pub gap_mm: u8,
+    pub gap_offset_mm: u8,
+    pub feed_offset_mm: i8,
+    pub rotate: u16,
 }
 
 impl Default for LabelOptions {
     fn default() -> Self {
         Self {
             dpi: 300,
-            darkness: 10,
+            darkness: 8,
             speed: 4,
+            gap_mm: 3,
+            gap_offset_mm: 0,
+            feed_offset_mm: 0,
+            rotate: 0,
         }
     }
 }

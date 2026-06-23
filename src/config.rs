@@ -24,6 +24,30 @@ pub struct Config {
         default_value = "ipp://localhost:631/ipp/print"
     )]
     pub printer_uri: String,
+
+    /// Enable Bonjour/mDNS advertisement for macOS/iOS discovery.
+    #[arg(long, env = "ENABLE_BONJOUR", default_value_t = false)]
+    pub enable_bonjour: bool,
+
+    /// Bonjour service instance name.
+    #[arg(
+        long,
+        env = "BONJOUR_SERVICE_NAME",
+        default_value = "Vevor Label Printer 300"
+    )]
+    pub bonjour_service_name: String,
+
+    /// Host address advertised in admin URLs and IPP metadata.
+    #[arg(long, env = "PRINTER_HOST", default_value = "localhost")]
+    pub printer_host: String,
+
+    /// Stable UUID advertised to Bonjour clients.
+    #[arg(
+        long,
+        env = "BONJOUR_UUID",
+        default_value = "8a8a9a2d-43dc-4c7f-8fd3-0e4f03000001"
+    )]
+    pub bonjour_uuid: String,
 }
 
 impl Config {

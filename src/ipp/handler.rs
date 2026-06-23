@@ -26,6 +26,7 @@ pub async fn handle_ipp(
             printer_attributes(&state, &request, Status::SuccessfulOk)
         }
         Operation::ValidateJob => printer_attributes(&state, &request, Status::SuccessfulOk),
+        Operation::GetJobs => printer_attributes(&state, &request, Status::SuccessfulOk),
         Operation::PrintJob => match print_job(&state, &request).await {
             Ok(()) => printer_attributes(&state, &request, Status::SuccessfulOk),
             Err(PrintError::UnsupportedFormat) => printer_attributes(
@@ -38,6 +39,13 @@ pub async fn handle_ipp(
                 printer_attributes(&state, &request, Status::ServerErrorInternalError)
             }
         },
+        Operation::CreateJob
+        | Operation::GetJobAttributes
+        | Operation::SendDocument
+        | Operation::CancelJob => {
+            warn!(operation = ?request.operation, "unsupported IPP operation");
+            printer_attributes(&state, &request, Status::ServerErrorOperationNotSupported)
+        }
         Operation::Unknown(operation) => {
             warn!(operation, "unsupported IPP operation");
             printer_attributes(&state, &request, Status::ServerErrorOperationNotSupported)
@@ -57,6 +65,12 @@ fn ipp_response_headers(bytes: Vec<u8>, status: StatusCode) -> (StatusCode, Head
 }
 
 fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) -> Vec<u8> {
+    let admin_url = format!(
+        "http://{}:{}/",
+        state.config.printer_host,
+        state.config.listen_addr.port()
+    );
+
     ResponseBuilder::new(request, status)
         .operation_string(ValueTag::Charset, "attributes-charset", "utf-8")
         .operation_string(
@@ -70,6 +84,8 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
             "printer-uri-supported",
             &state.config.printer_uri,
         )
+        .string(ValueTag::Keyword, "uri-authentication-supported", "none")
+        .string(ValueTag::Keyword, "uri-security-supported", "none")
         .string(
             ValueTag::NameWithoutLanguage,
             "printer-name",
@@ -80,28 +96,71 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
             "printer-info",
             "Standalone Vevor label printer application",
         )
+        .string(
+            ValueTag::TextWithoutLanguage,
+            "printer-make-and-model",
+            "Vevor Label Printer 300",
+        )
+        .string(ValueTag::Uri, "printer-more-info", &admin_url)
+        .string(ValueTag::Charset, "charset-configured", "utf-8")
+        .string(ValueTag::Charset, "charset-supported", "utf-8")
+        .string(
+            ValueTag::NaturalLanguage,
+            "natural-language-configured",
+            "en",
+        )
+        .string(
+            ValueTag::NaturalLanguage,
+            "generated-natural-language-supported",
+            "en",
+        )
         .integer(ValueTag::Enum, "printer-state", 3)
         .string(ValueTag::Keyword, "printer-state-reasons", "none")
         .boolean("printer-is-accepting-jobs", true)
-        .string(ValueTag::Keyword, "ipp-versions-supported", "2.0")
-        .string(ValueTag::Keyword, "operations-supported", "Print-Job")
-        .string(ValueTag::Keyword, "operations-supported", "Validate-Job")
-        .string(
-            ValueTag::Keyword,
+        .integer(ValueTag::Integer, "queued-job-count", 0)
+        .strings(ValueTag::Keyword, "ipp-versions-supported", &["2.0", "2.1"])
+        .integers(
+            ValueTag::Enum,
             "operations-supported",
-            "Get-Printer-Attributes",
+            &[
+                Operation::PrintJob.code(),
+                Operation::ValidateJob.code(),
+                Operation::GetJobs.code(),
+                Operation::GetPrinterAttributes.code(),
+            ],
+        )
+        .strings(
+            ValueTag::MimeMediaType,
+            "document-format-supported",
+            &["image/pwg-raster"],
         )
         .string(
             ValueTag::MimeMediaType,
-            "document-format-supported",
+            "document-format-default",
             "image/pwg-raster",
         )
+        .string(ValueTag::Keyword, "pdl-override-supported", "not-attempted")
+        .string(ValueTag::Keyword, "compression-supported", "none")
         .string(
             ValueTag::Keyword,
             "print-color-mode-supported",
             "monochrome",
         )
-        .string(ValueTag::Keyword, "printer-resolution-supported", "300dpi")
+        .string(ValueTag::Keyword, "print-color-mode-default", "monochrome")
+        .string(ValueTag::Keyword, "sides-supported", "one-sided")
+        .string(ValueTag::Keyword, "sides-default", "one-sided")
+        .strings(
+            ValueTag::Keyword,
+            "media-supported",
+            &[
+                "oe_w288h432_4x6in",
+                "oe_w288h288_4x4in",
+                "oe_w144h288_2x4in",
+            ],
+        )
+        .string(ValueTag::Keyword, "media-default", "oe_w288h432_4x6in")
+        .resolution("printer-resolution-supported", 300, 300)
+        .resolution("printer-resolution-default", 300, 300)
         .finish()
 }
 
@@ -110,8 +169,8 @@ async fn print_job(state: &AppState, request: &IppRequest) -> Result<(), PrintEr
         return Err(PrintError::UnsupportedFormat);
     }
 
-    // Temporary development bridge: treat the document body as one already-packed
-    // monochrome raster stripe. PWG Raster parsing is the next implementation step.
+    // Development bridge: until the PWG Raster parser lands, accept the document
+    // body as packed 1-bit raster rows for low-level driver/output testing.
     let page = RasterPage {
         width_px: 8,
         height_px: request.document.len() as u32,

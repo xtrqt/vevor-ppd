@@ -1,4 +1,5 @@
 mod app;
+mod bonjour;
 mod config;
 mod driver;
 mod ipp;
@@ -19,6 +20,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::parse();
+    let _bonjour = bonjour::Advertiser::start(&config)?;
     let state = Arc::new(app::AppState::new(config.clone()));
 
     let router = Router::new()

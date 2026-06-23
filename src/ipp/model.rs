@@ -1,8 +1,13 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
     PrintJob,
+    CreateJob,
     ValidateJob,
+    GetJobs,
     GetPrinterAttributes,
+    GetJobAttributes,
+    SendDocument,
+    CancelJob,
     Unknown(u16),
 }
 
@@ -10,9 +15,30 @@ impl From<u16> for Operation {
     fn from(value: u16) -> Self {
         match value {
             0x0002 => Self::PrintJob,
+            0x0005 => Self::CreateJob,
             0x0004 => Self::ValidateJob,
+            0x000a => Self::GetJobs,
             0x000b => Self::GetPrinterAttributes,
+            0x0009 => Self::GetJobAttributes,
+            0x0006 => Self::SendDocument,
+            0x0008 => Self::CancelJob,
             other => Self::Unknown(other),
+        }
+    }
+}
+
+impl Operation {
+    pub fn code(self) -> i32 {
+        match self {
+            Self::PrintJob => 0x0002,
+            Self::ValidateJob => 0x0004,
+            Self::CreateJob => 0x0005,
+            Self::SendDocument => 0x0006,
+            Self::CancelJob => 0x0008,
+            Self::GetJobAttributes => 0x0009,
+            Self::GetJobs => 0x000a,
+            Self::GetPrinterAttributes => 0x000b,
+            Self::Unknown(value) => value as i32,
         }
     }
 }
@@ -36,8 +62,10 @@ pub enum Status {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueTag {
+    Integer = 0x21,
     Boolean = 0x22,
     Enum = 0x23,
+    Resolution = 0x32,
     TextWithoutLanguage = 0x41,
     NameWithoutLanguage = 0x42,
     Keyword = 0x44,

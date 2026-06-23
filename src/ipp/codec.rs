@@ -94,8 +94,31 @@ impl ResponseBuilder {
         self
     }
 
+    pub fn strings(mut self, tag: ValueTag, name: &str, values: &[&str]) -> Self {
+        for (index, value) in values.iter().enumerate() {
+            self.attr(tag, repeated_name(name, index), value.as_bytes());
+        }
+        self
+    }
+
     pub fn integer(mut self, tag: ValueTag, name: &str, value: i32) -> Self {
         self.attr(tag, name, &value.to_be_bytes());
+        self
+    }
+
+    pub fn integers(mut self, tag: ValueTag, name: &str, values: &[i32]) -> Self {
+        for (index, value) in values.iter().enumerate() {
+            self.attr(tag, repeated_name(name, index), &value.to_be_bytes());
+        }
+        self
+    }
+
+    pub fn resolution(mut self, name: &str, cross_feed: i32, feed: i32) -> Self {
+        let mut value = Vec::with_capacity(9);
+        value.extend_from_slice(&cross_feed.to_be_bytes());
+        value.extend_from_slice(&feed.to_be_bytes());
+        value.push(3); // dots per inch
+        self.attr(ValueTag::Resolution, name, &value);
         self
     }
 
@@ -117,6 +140,14 @@ impl ResponseBuilder {
         self.bytes
             .extend_from_slice(&(value.len() as u16).to_be_bytes());
         self.bytes.extend_from_slice(value);
+    }
+}
+
+fn repeated_name(name: &str, index: usize) -> &str {
+    if index == 0 {
+        name
+    } else {
+        ""
     }
 }
 

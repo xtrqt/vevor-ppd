@@ -16,5 +16,7 @@ COPY --from=build /app/target/release/vevor-printer-app /usr/local/bin/vevor-pri
 EXPOSE 631
 ENV LISTEN_ADDR=0.0.0.0:631
 ENV OUTPUT_DEVICE=/dev/usb/lp0
+ENV ENABLE_BONJOUR=false
+ENV PRINTER_HOST=localhost
 
 ENTRYPOINT ["/usr/local/bin/vevor-printer-app"]
