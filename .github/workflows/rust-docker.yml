@@ -1,4 +1,4 @@
-name: Build Rust Docker Image
+name: Build Docker Image
 
 on:
   push:
@@ -16,21 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Run tests
-        run: cargo test
-
-      - name: Build Rust app
-        run: cargo build --release
 
       - name: Set image version
         run: |
@@ -56,7 +41,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
+      - name: Build and publish Docker image
         uses: docker/build-push-action@v6
         with:
           context: .

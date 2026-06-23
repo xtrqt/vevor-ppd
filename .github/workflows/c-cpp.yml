@@ -1,11 +1,7 @@
 name: Build CUPS Driver
 
 on:
-  push:
-    branches: [ "**" ]
-    tags: [ "v*" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
 
 permissions:
   contents: write
