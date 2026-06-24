@@ -35,17 +35,24 @@ pub async fn handle_ipp(
         }
         Operation::ValidateJob => printer_attributes(&state, &request, Status::SuccessfulOk),
         Operation::GetJobs => printer_attributes(&state, &request, Status::SuccessfulOk),
-        Operation::PrintJob => match print_job(&state, &request).await {
-            Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
-            Err(PrintError::UnsupportedFormat) => printer_attributes(
+        Operation::PrintJob => match request.document_format().as_deref() {
+            Some("application/pdf") => printer_attributes(
                 &state,
                 &request,
                 Status::ClientErrorDocumentFormatNotSupported,
             ),
-            Err(PrintError::Internal(err)) => {
-                error!(error = %err, "print job failed");
-                printer_attributes(&state, &request, Status::ServerErrorInternalError)
-            }
+            _ => match print_job(&state, &request).await {
+                Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
+                Err(PrintError::UnsupportedFormat) => printer_attributes(
+                    &state,
+                    &request,
+                    Status::ClientErrorDocumentFormatNotSupported,
+                ),
+                Err(PrintError::Internal(err)) => {
+                    error!(error = %err, "print job failed");
+                    printer_attributes(&state, &request, Status::ServerErrorInternalError)
+                }
+            },
         },
         Operation::CreateJob => job_attributes(&state, &request, Status::SuccessfulOk, 3),
         Operation::SendDocument => match send_document(&state, &request).await {
