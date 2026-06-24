@@ -1,5 +1,6 @@
 use super::codec::{parse_request, ResponseBuilder};
 use super::model::{IppRequest, Operation, Status, ValueTag};
+use super::pwg_raster::parse_pwg_raster;
 use crate::app::AppState;
 use crate::driver::{vevor, LabelOptions, PrintJob, RasterPage};
 use crate::output;
@@ -35,36 +36,9 @@ pub async fn handle_ipp(
         }
         Operation::ValidateJob => printer_attributes(&state, &request, Status::SuccessfulOk),
         Operation::GetJobs => printer_attributes(&state, &request, Status::SuccessfulOk),
-        Operation::PrintJob => match request.document_format().as_deref() {
-            Some("application/pdf") => printer_attributes(
-                &state,
-                &request,
-                Status::ClientErrorDocumentFormatNotSupported,
-            ),
-            _ => match print_job(&state, &request).await {
-                Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
-                Err(PrintError::UnsupportedFormat) => printer_attributes(
-                    &state,
-                    &request,
-                    Status::ClientErrorDocumentFormatNotSupported,
-                ),
-                Err(PrintError::Internal(err)) => {
-                    error!(error = %err, "print job failed");
-                    printer_attributes(&state, &request, Status::ServerErrorInternalError)
-                }
-            },
-        },
+        Operation::PrintJob => handle_print_or_send(&state, &request).await,
         Operation::CreateJob => job_attributes(&state, &request, Status::SuccessfulOk, 3),
-        Operation::SendDocument => match send_document(&state, &request).await {
-            Ok(()) => job_attributes(&state, &request, Status::SuccessfulOk, 9),
-            Err(PrintError::UnsupportedFormat) => {
-                job_attributes(&state, &request, Status::SuccessfulOk, 3)
-            }
-            Err(PrintError::Internal(err)) => {
-                error!(error = %err, "send-document failed");
-                job_attributes(&state, &request, Status::ServerErrorInternalError, 9)
-            }
-        },
+        Operation::SendDocument => handle_print_or_send(&state, &request).await,
         Operation::GetJobAttributes => job_attributes(&state, &request, Status::SuccessfulOk, 9),
         Operation::CancelJob => job_attributes(&state, &request, Status::SuccessfulOk, 7),
         Operation::Unknown(operation) => {
@@ -74,6 +48,95 @@ pub async fn handle_ipp(
     };
 
     ipp_response_headers(response, StatusCode::OK)
+}
+
+async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8> {
+    match request.document_format().as_deref() {
+        Some("application/pdf") => printer_attributes(
+            state,
+            request,
+            Status::ClientErrorDocumentFormatNotSupported,
+        ),
+        Some("image/pwg-raster") => match parse_pwg_raster(&request.document).await {
+            Ok(pages) => {
+                let mut all_pages = Vec::new();
+                for page in pages {
+                    all_pages.push(RasterPage {
+                        width_px: page.width_px,
+                        height_px: page.height_px,
+                        bytes_per_line: page.bytes_per_line,
+                        data: page.data,
+                    });
+                }
+                if all_pages.is_empty() {
+                    return printer_attributes(state, request, Status::ServerErrorInternalError);
+                }
+                let job = PrintJob {
+                    pages: all_pages,
+                    options: LabelOptions::default(),
+                };
+                match vevor::render(&job) {
+                    Ok(bytes) => {
+                        if let Err(e) = output::write_all(&state.config.output_device, &bytes).await
+                        {
+                            error!(error = %e, "failed to write to printer device");
+                            return printer_attributes(
+                                state,
+                                request,
+                                Status::ServerErrorInternalError,
+                            );
+                        }
+                        job_attributes(state, request, Status::SuccessfulOk, 9)
+                    }
+                    Err(e) => {
+                        error!(error = %e, "failed to render job");
+                        printer_attributes(state, request, Status::ServerErrorInternalError)
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "failed to parse PWG raster");
+                printer_attributes(state, request, Status::ServerErrorInternalError)
+            }
+        },
+        _ => {
+            // Fallback: treat document as raw 1-bit raster
+            if request.document.is_empty() {
+                return printer_attributes(
+                    state,
+                    request,
+                    Status::ClientErrorDocumentFormatNotSupported,
+                );
+            }
+            let page = RasterPage {
+                width_px: 8,
+                height_px: request.document.len() as u32,
+                bytes_per_line: 1,
+                data: request.document.clone(),
+            };
+            let job = PrintJob {
+                pages: vec![page],
+                options: LabelOptions::default(),
+            };
+            match vevor::render(&job) {
+                Ok(bytes) => {
+                    if let Err(e) = output::write_all(&state.config.output_device, &bytes).await {
+                        error!(error = %e, "failed to write to printer device");
+                        return printer_attributes(
+                            state,
+                            request,
+                            Status::ServerErrorInternalError,
+                        );
+                    }
+                    job_attributes(state, request, Status::SuccessfulOk, 9)
+                }
+                Err(e) => {
+                    error!(error = %e, "failed to render job");
+                    printer_attributes(state, request, Status::ServerErrorInternalError)
+                }
+            }
+        }
+    }
 }
 
 fn ipp_response_headers(bytes: Vec<u8>, status: StatusCode) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -212,41 +275,4 @@ fn job_attributes(
         .string(ValueTag::Keyword, "job-state-reasons", "none")
         .string(ValueTag::NameWithoutLanguage, "job-name", "Vevor print job")
         .finish()
-}
-
-async fn print_job(state: &AppState, request: &IppRequest) -> Result<(), PrintError> {
-    if request.document.is_empty() {
-        return Err(PrintError::UnsupportedFormat);
-    }
-
-    // Development bridge: until the PWG Raster parser lands, accept the document
-    // body as packed 1-bit raster rows for low-level driver/output testing.
-    let page = RasterPage {
-        width_px: 8,
-        height_px: request.document.len() as u32,
-        bytes_per_line: 1,
-        data: request.document.clone(),
-    };
-    let job = PrintJob {
-        pages: vec![page],
-        options: LabelOptions::default(),
-    };
-    let bytes = vevor::render(&job).map_err(PrintError::Internal)?;
-
-    output::write_all(&state.config.output_device, &bytes)
-        .await
-        .map_err(PrintError::Internal)
-}
-
-async fn send_document(state: &AppState, request: &IppRequest) -> Result<(), PrintError> {
-    if request.document.is_empty() {
-        return Err(PrintError::UnsupportedFormat);
-    }
-
-    print_job(state, request).await
-}
-
-enum PrintError {
-    UnsupportedFormat,
-    Internal(anyhow::Error),
 }
