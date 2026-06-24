@@ -1,4 +1,4 @@
-use super::model::{IppRequest, Operation, Status, ValueTag};
+use super::model::{IppAttribute, IppRequest, Operation, Status, ValueTag};
 use anyhow::{bail, ensure, Result};
 
 const TAG_END: u8 = 0x03;
@@ -15,6 +15,8 @@ pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
     let operation_id = u16::from_be_bytes([bytes[2], bytes[3]]);
     let request_id = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
 
+    let mut attributes = Vec::new();
+    let mut last_name = String::new();
     let mut cursor = 8;
     while cursor < bytes.len() {
         if bytes[cursor] == TAG_END {
@@ -44,6 +46,13 @@ pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
             cursor + name_len <= bytes.len(),
             "truncated IPP attribute name"
         );
+        let name = if name_len == 0 {
+            last_name.clone()
+        } else {
+            let name = std::str::from_utf8(&bytes[cursor..cursor + name_len])?.to_string();
+            last_name = name.clone();
+            name
+        };
         cursor += name_len;
 
         ensure!(
@@ -56,7 +65,10 @@ pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
             cursor + value_len <= bytes.len(),
             "truncated IPP attribute value"
         );
+        let value = bytes[cursor..cursor + value_len].to_vec();
         cursor += value_len;
+
+        attributes.push(IppAttribute { name, value });
     }
 
     if cursor > bytes.len() {
@@ -68,6 +80,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<IppRequest> {
         version_minor,
         operation: Operation::from(operation_id),
         request_id,
+        attributes,
         document: bytes[cursor..].to_vec(),
     })
 }
@@ -192,6 +205,39 @@ mod tests {
         let request = parse_request(&bytes).expect("parse request");
         assert_eq!(request.operation, Operation::CreateJob);
         assert_eq!(request.request_id, 21);
+        assert_eq!(request.attributes[0].name, "job-name");
+        assert_eq!(request.attributes[0].value, b"test");
         assert!(request.document.is_empty());
+    }
+
+    #[test]
+    fn parses_repeated_attribute_values() {
+        let mut bytes = vec![
+            0x02,
+            0x00,
+            0x00,
+            0x0b,
+            0,
+            0,
+            0,
+            22,
+            TAG_OPERATION_ATTRIBUTES,
+        ];
+        bytes.push(ValueTag::Keyword as u8);
+        bytes.extend_from_slice(&20u16.to_be_bytes());
+        bytes.extend_from_slice(b"requested-attributes");
+        bytes.extend_from_slice(&12u16.to_be_bytes());
+        bytes.extend_from_slice(b"printer-name");
+        bytes.push(ValueTag::Keyword as u8);
+        bytes.extend_from_slice(&0u16.to_be_bytes());
+        bytes.extend_from_slice(&13u16.to_be_bytes());
+        bytes.extend_from_slice(b"printer-state");
+        bytes.push(TAG_END);
+
+        let request = parse_request(&bytes).expect("parse request");
+        assert_eq!(request.attributes.len(), 2);
+        assert_eq!(request.attributes[0].name, "requested-attributes");
+        assert_eq!(request.attributes[1].name, "requested-attributes");
+        assert_eq!(request.attributes[1].value, b"printer-state");
     }
 }

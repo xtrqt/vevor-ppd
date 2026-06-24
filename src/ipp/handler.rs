@@ -7,7 +7,7 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 pub async fn handle_ipp(
     State(state): State<Arc<AppState>>,
@@ -20,6 +20,14 @@ pub async fn handle_ipp(
             return ipp_response_headers(Vec::new(), StatusCode::BAD_REQUEST);
         }
     };
+
+    info!(
+        operation = ?request.operation,
+        request_id = request.request_id,
+        document_format = request.document_format().unwrap_or("unknown"),
+        document_bytes = request.document.len(),
+        "received IPP request"
+    );
 
     let response = match request.operation {
         Operation::GetPrinterAttributes => {

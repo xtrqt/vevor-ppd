@@ -49,7 +49,23 @@ pub struct IppRequest {
     pub version_minor: u8,
     pub operation: Operation,
     pub request_id: u32,
+    pub attributes: Vec<IppAttribute>,
     pub document: Vec<u8>,
+}
+
+impl IppRequest {
+    pub fn document_format(&self) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|attribute| attribute.name == "document-format")
+            .and_then(|attribute| std::str::from_utf8(&attribute.value).ok())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IppAttribute {
+    pub name: String,
+    pub value: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
