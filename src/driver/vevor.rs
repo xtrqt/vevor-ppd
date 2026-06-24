@@ -1,13 +1,23 @@
 use super::{LabelOptions, PrintJob, RasterPage};
 use anyhow::{bail, Result};
+use tracing::info;
 
 pub fn render(job: &PrintJob) -> Result<Vec<u8>> {
     let mut out = Vec::new();
 
-    for page in &job.pages {
+    for (i, page) in job.pages.iter().enumerate() {
+        info!(
+            page = i,
+            width_px = page.width_px,
+            height_px = page.height_px,
+            bytes_per_line = page.bytes_per_line,
+            data_len = page.data.len(),
+            "rendering page"
+        );
         render_page(page, &job.options, &mut out)?;
     }
 
+    info!(total_output_bytes = out.len(), "render complete");
     Ok(out)
 }
 
@@ -29,6 +39,20 @@ fn render_page(page: &RasterPage, options: &LabelOptions, out: &mut Vec<u8>) -> 
     let width_mm = div_round_up(page.width_px, dots_per_mm);
     let height_mm = div_round_up(page.height_px, dots_per_mm);
     let bitmap_bytes_per_line = page.width_px.div_ceil(8);
+
+    info!(
+        dots_per_mm,
+        width_px = page.width_px,
+        height_px = page.height_px,
+        width_mm,
+        height_mm,
+        bitmap_bytes_per_line,
+        "computed label geometry"
+    );
+
+    if width_mm == 0 || height_mm == 0 {
+        bail!("zero-size label: {}x{}mm", width_mm, height_mm);
+    }
 
     append_line(out, format_args!("SIZE {width_mm} mm,{height_mm} mm"));
     append_line(out, format_args!("REFERENCE 0,0"));
@@ -154,5 +178,179 @@ mod tests {
         assert!(text.contains("SIZE 1 mm,1 mm"));
         assert!(text.contains("BITMAP 0,0,1,1,1,"));
         assert!(text.contains("PRINT 1,1"));
+        // Verify the packed pixel byte for alternating black/white
+        // input: [0,255,0,255,0,255,0,255]
+        // mask sequence: 0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01
+        // pixels ≤200 set bit → 0x80|0x20|0x08|0x02 = 0xAA
+        // then !0xAA = 0x55
+        // BITMAP 0,0,1,1,1,  is 17 chars, data starts at byte 17 after the 'B'
+        let bitm = text.find("BITMAP 0,0,1,1,1,").unwrap();
+        let data_start = bitm + 17;
+        assert_eq!(bytes[data_start], 0x55, "first bitmap byte mismatch");
+    }
+
+    /// Build expected TSPL output using the exact C reference logic for BEEPRT.
+    /// Used as a fixture to compare against render().
+    fn c_reference_render(width_px: u32, height_px: u32, bpl: u32, data: &[u8]) -> Vec<u8> {
+        // C: div_round_up(10 * 300, 254) = 12
+        let dots_per_mm = 12u32;
+        let width_mm = (width_px + dots_per_mm - 1) / dots_per_mm;
+        let height_mm = (height_px + dots_per_mm - 1) / dots_per_mm;
+        let bitmap_bpl = (width_px + 7) / 8;
+
+        let mut out = Vec::new();
+
+        // StartPage BEEPRT (lines 373-456)
+        out.extend_from_slice(b"SIZE ");
+        out.extend_from_slice(width_mm.to_string().as_bytes());
+        out.extend_from_slice(b" mm,");
+        out.extend_from_slice(height_mm.to_string().as_bytes());
+        out.extend_from_slice(b" mm\r\n");
+        out.extend_from_slice(b"REFERENCE 0,0\r\n");
+        out.extend_from_slice(b"DIRECTION 0,0\r\n");
+        out.extend_from_slice(b"GAP 3 mm,0 mm\r\n");
+        out.extend_from_slice(b"OFFSET 0 mm\r\n");
+        out.extend_from_slice(b"DENSITY 8\r\n");
+        out.extend_from_slice(b"SPEED 4\r\n");
+        out.extend_from_slice(b"SETC AUTODOTTED OFF\r\n");
+        out.extend_from_slice(b"SETC PAUSEKEY ON\r\n");
+        out.extend_from_slice(b"SETC WATERMARK OFF\r\n");
+        out.extend_from_slice(b"CLS\r\n");
+        out.extend_from_slice(b"BITMAP 0,0,");
+        out.extend_from_slice(bitmap_bpl.to_string().as_bytes());
+        out.extend_from_slice(b",");
+        out.extend_from_slice(height_px.to_string().as_bytes());
+        out.extend_from_slice(b",1,");
+
+        // OutputLine BEEPRT (lines 1040-1053)
+        for y in 0..height_px as usize {
+            let row_start = y * bpl as usize;
+            let row = &data[row_start..row_start + bpl as usize];
+            let mut i = 0usize;
+            while i < bpl as usize {
+                let mut packed = 0u8;
+                let mut mask = 0x80u8;
+                while mask != 0 && i < bpl as usize {
+                    if row[i] <= 200 {
+                        packed |= mask;
+                    }
+                    i += 1;
+                    mask >>= 1;
+                }
+                out.push(!packed);
+            }
+        }
+
+        // EndPage BEEPRT (line 842)
+        out.extend_from_slice(b"\nPRINT 1,1\r\n");
+
+        out
+    }
+
+    #[test]
+    fn pixel_conversion_matches_c_reference() {
+        // Simulate a 40x30mm label at 300 DPI:
+        // width = ceil(40 * 300 / 25.4) ≈ 473 px
+        // height = ceil(30 * 300 / 25.4) ≈ 354 px
+        // 8-bit grayscale: bytes_per_line = width
+        let w = 12u32;
+        let h = 12u32;
+
+        // Create a checkerboard pattern: 2x2 pixel black/white tiles
+        let mut data = Vec::with_capacity((w * h) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                // Even tile = black (0), odd tile = white (255)
+                if ((x / 2) + (y / 2)) % 2 == 0 {
+                    data.push(0u8); // black
+                } else {
+                    data.push(255u8); // white
+                }
+            }
+        }
+
+        let job = PrintJob {
+            pages: vec![RasterPage {
+                width_px: w,
+                height_px: h,
+                bytes_per_line: w,
+                data: data.clone(),
+            }],
+            options: LabelOptions::default(),
+        };
+
+        let rust_output = render(&job).expect("render");
+        let c_output = c_reference_render(w, h, w, &data);
+
+        // Compare command headers portion (up to BITMAP data)
+        let cmd_end = rust_output
+            .windows(5)
+            .position(|w| w == b"1,\nPR")
+            .unwrap_or(rust_output.len().saturating_sub(10));
+        let c_cmd_end = c_output
+            .windows(5)
+            .position(|w| w == b"1,\nPR")
+            .unwrap_or(c_output.len().saturating_sub(10));
+
+        assert_eq!(
+            &rust_output[..cmd_end],
+            &c_output[..c_cmd_end],
+            "command headers differ"
+        );
+
+        // Compare full output
+        assert_eq!(
+            rust_output, c_output,
+            "full output differs from C reference"
+        );
+    }
+
+    #[test]
+    fn bitmap_byte_count_and_data_match() {
+        let w = 40u32;
+        let h = 30u32;
+        // All medium-gray pixels (will be thresholded)
+        let data = vec![128u8; (w * h) as usize];
+
+        let job = PrintJob {
+            pages: vec![RasterPage {
+                width_px: w,
+                height_px: h,
+                bytes_per_line: w,
+                data,
+            }],
+            options: LabelOptions::default(),
+        };
+
+        let bytes = render(&job).expect("render");
+        let text = String::from_utf8_lossy(&bytes);
+
+        // 40px width / 8 = 5 bytes per bitmap row, 30 rows = 150 bytes
+        let bitmap_bpl = w.div_ceil(8);
+        assert!(
+            text.contains(&format!("BITMAP 0,0,{bitmap_bpl},{h},1,")),
+            "BITMAP command mismatch"
+        );
+
+        // Gray (128) ≤ 200 so pixels should be set as black
+        // packed = 0xFF for each 8-pixel chunk, then !packed = 0x00
+        let bitmap_marker = format!(",{h},1,");
+        let bitmap_start = bytes
+            .windows(bitmap_marker.len())
+            .position(|w| w == bitmap_marker.as_bytes())
+            .map(|pos| pos + bitmap_marker.len())
+            .unwrap();
+        let bitmap_end = bytes.len() - b"\nPRINT 1,1\r\n".len();
+        let bitmap_data = &bytes[bitmap_start..bitmap_end];
+
+        assert_eq!(
+            bitmap_data.len(),
+            (bitmap_bpl * h) as usize,
+            "bitmap data length mismatch"
+        );
+        assert!(
+            bitmap_data.iter().all(|&b| b == 0x00),
+            "all pixels ≤200 should produce 0x00 bytes"
+        );
     }
 }
