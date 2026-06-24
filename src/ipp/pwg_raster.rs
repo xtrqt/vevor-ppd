@@ -1,8 +1,7 @@
 use crate::driver::RasterPage;
 use futures::io::AsyncReadExt;
 use print_raster::reader::{
-    cups::unified::CupsRasterUnifiedReader,
-    RasterPageReader, RasterReader,
+    cups::unified::CupsRasterUnifiedReader, RasterPageReader, RasterReader,
 };
 use std::io::Cursor;
 use tokio_util::compat::TokioAsyncReadCompatExt;
