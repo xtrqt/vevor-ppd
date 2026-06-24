@@ -35,38 +35,32 @@ fn render_page(page: &RasterPage, options: &LabelOptions, out: &mut Vec<u8>) -> 
         );
     }
 
-    let actual_dpi = if page.dot_per_inch != 0 {
-        page.dot_per_inch
-    } else {
-        options.dpi as u32
-    };
-    info!(
-        actual_dpi,
-        hardcoded_dpi = options.dpi,
-        "using DPI for mm conversion"
-    );
-
-    let dots_per_mm = dots_per_mm(actual_dpi as u16);
-    let width_mm = div_round_up(page.width_px, dots_per_mm);
-    let height_mm = div_round_up(page.height_px, dots_per_mm);
     let bitmap_bytes_per_line = page.width_px.div_ceil(8);
 
     info!(
-        actual_dpi,
-        dots_per_mm,
         width_px = page.width_px,
         height_px = page.height_px,
-        width_mm,
-        height_mm,
         bitmap_bytes_per_line,
+        label_width_mm = options.label_width_mm,
+        label_height_mm = options.label_height_mm,
         "computed label geometry"
     );
 
-    if width_mm == 0 || height_mm == 0 {
-        bail!("zero-size label: {}x{}mm", width_mm, height_mm);
+    if options.label_width_mm == 0 || options.label_height_mm == 0 {
+        bail!(
+            "zero-size label: {}x{}mm",
+            options.label_width_mm,
+            options.label_height_mm
+        );
     }
 
-    append_line(out, format_args!("SIZE {width_mm} mm,{height_mm} mm"));
+    append_line(
+        out,
+        format_args!(
+            "SIZE {} mm,{} mm",
+            options.label_width_mm, options.label_height_mm
+        ),
+    );
     append_line(out, format_args!("REFERENCE 0,0"));
     append_line(out, format_args!("DIRECTION {},0", options.rotate));
     append_line(
@@ -189,7 +183,7 @@ mod tests {
 
         let bytes = render(&job).expect("render job");
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("SIZE 1 mm,1 mm"));
+        assert!(text.contains("SIZE 40 mm,30 mm"));
         assert!(text.contains("BITMAP 0,0,1,1,1,"));
         assert!(text.contains("PRINT 1,1"));
         // Verify the packed pixel byte for alternating black/white
@@ -206,20 +200,12 @@ mod tests {
     /// Build expected TSPL output using the exact C reference logic for BEEPRT.
     /// Used as a fixture to compare against render().
     fn c_reference_render(width_px: u32, height_px: u32, bpl: u32, data: &[u8]) -> Vec<u8> {
-        // C: div_round_up(10 * 300, 254) = 12
-        let dots_per_mm = 12u32;
-        let width_mm = (width_px + dots_per_mm - 1) / dots_per_mm;
-        let height_mm = (height_px + dots_per_mm - 1) / dots_per_mm;
         let bitmap_bpl = (width_px + 7) / 8;
 
         let mut out = Vec::new();
 
         // StartPage BEEPRT (lines 373-456)
-        out.extend_from_slice(b"SIZE ");
-        out.extend_from_slice(width_mm.to_string().as_bytes());
-        out.extend_from_slice(b" mm,");
-        out.extend_from_slice(height_mm.to_string().as_bytes());
-        out.extend_from_slice(b" mm\r\n");
+        out.extend_from_slice(b"SIZE 40 mm,30 mm\r\n");
         out.extend_from_slice(b"REFERENCE 0,0\r\n");
         out.extend_from_slice(b"DIRECTION 0,0\r\n");
         out.extend_from_slice(b"GAP 3 mm,0 mm\r\n");

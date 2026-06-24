@@ -3,6 +3,8 @@ pub mod vevor;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LabelOptions {
     pub dpi: u16,
+    pub label_width_mm: u32,
+    pub label_height_mm: u32,
     pub darkness: u8,
     pub speed: u8,
     pub gap_mm: u8,
@@ -15,6 +17,8 @@ impl Default for LabelOptions {
     fn default() -> Self {
         Self {
             dpi: 300,
+            label_width_mm: 40,
+            label_height_mm: 30,
             darkness: 8,
             speed: 4,
             gap_mm: 3,
