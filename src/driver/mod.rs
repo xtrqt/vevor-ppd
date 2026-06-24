@@ -30,6 +30,7 @@ pub struct RasterPage {
     pub width_px: u32,
     pub height_px: u32,
     pub bytes_per_line: u32,
+    pub dot_per_inch: u32,
     pub data: Vec<u8>,
 }
 

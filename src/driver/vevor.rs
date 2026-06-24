@@ -35,12 +35,24 @@ fn render_page(page: &RasterPage, options: &LabelOptions, out: &mut Vec<u8>) -> 
         );
     }
 
-    let dots_per_mm = dots_per_mm(options.dpi);
+    let actual_dpi = if page.dot_per_inch != 0 {
+        page.dot_per_inch
+    } else {
+        options.dpi as u32
+    };
+    info!(
+        actual_dpi,
+        hardcoded_dpi = options.dpi,
+        "using DPI for mm conversion"
+    );
+
+    let dots_per_mm = dots_per_mm(actual_dpi as u16);
     let width_mm = div_round_up(page.width_px, dots_per_mm);
     let height_mm = div_round_up(page.height_px, dots_per_mm);
     let bitmap_bytes_per_line = page.width_px.div_ceil(8);
 
     info!(
+        actual_dpi,
         dots_per_mm,
         width_px = page.width_px,
         height_px = page.height_px,
@@ -153,6 +165,7 @@ mod tests {
                 width_px: 8,
                 height_px: 2,
                 bytes_per_line: 1,
+                dot_per_inch: 300,
                 data: vec![0xff],
             }],
             options: LabelOptions::default(),
@@ -168,6 +181,7 @@ mod tests {
                 width_px: 8,
                 height_px: 1,
                 bytes_per_line: 8,
+                dot_per_inch: 300,
                 data: vec![0, 255, 0, 255, 0, 255, 0, 255],
             }],
             options: LabelOptions::default(),
@@ -269,11 +283,13 @@ mod tests {
             }
         }
 
+        let dot_per_inch = 300u32;
         let job = PrintJob {
             pages: vec![RasterPage {
                 width_px: w,
                 height_px: h,
                 bytes_per_line: w,
+                dot_per_inch,
                 data: data.clone(),
             }],
             options: LabelOptions::default(),
@@ -317,6 +333,7 @@ mod tests {
                 width_px: w,
                 height_px: h,
                 bytes_per_line: w,
+                dot_per_inch: 300,
                 data,
             }],
             options: LabelOptions::default(),

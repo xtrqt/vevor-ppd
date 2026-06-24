@@ -22,9 +22,10 @@ pub async fn parse_pwg_raster(bytes: &[u8]) -> Result<Vec<RasterPage>, anyhow::E
         let bpl = hdr.v1.bytes_per_line;
         let bpc = hdr.v1.bits_per_pixel;
         let cs = hdr.v1.color_space;
+        let dpi = hdr.v1.resolution.cross_feed;
 
         info!(
-            width, height, bpl, bpc,
+            width, height, bpl, bpc, dpi,
             cs = ?cs,
             "PWG raster page"
         );
@@ -35,11 +36,11 @@ pub async fn parse_pwg_raster(bytes: &[u8]) -> Result<Vec<RasterPage>, anyhow::E
         let data_len = data.len();
         let expected = height as usize * bpl as usize;
         info!(data_len, expected, width, height, bpl, "PWG raster data read");
-
         pages.push(RasterPage {
             width_px: width,
             height_px: height,
             bytes_per_line: bpl,
+            dot_per_inch: dpi,
             data,
         });
 
@@ -92,18 +93,11 @@ pub async fn parse_urf_raster(bytes: &[u8]) -> Result<Vec<RasterPage>, anyhow::E
             debug!(preview = ?&data[..preview_len], "URF pixel data preview");
         }
 
-        // Check if row data is all-255 or all-0 per row
-        let all_same = data.chunks(width as usize).enumerate().take(5).map(|(i, row)| {
-            let first = row[0];
-            let uniform = row.iter().all(|&b| b == first);
-            (i, first, uniform)
-        }).collect::<Vec<_>>();
-        debug!(?all_same, "URF first 5 rows sample");
-
         pages.push(RasterPage {
             width_px: width,
             height_px: height,
             bytes_per_line: bpl,
+            dot_per_inch: dpi,
             data,
         });
 

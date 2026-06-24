@@ -65,6 +65,7 @@ async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8>
                         width_px: page.width_px,
                         height_px: page.height_px,
                         bytes_per_line: page.bytes_per_line,
+                        dot_per_inch: page.dot_per_inch,
                         data: page.data,
                     });
                 }
@@ -107,6 +108,7 @@ async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8>
                         width_px: page.width_px,
                         height_px: page.height_px,
                         bytes_per_line: page.bytes_per_line,
+                        dot_per_inch: page.dot_per_inch,
                         data: page.data,
                     });
                 }
@@ -154,6 +156,7 @@ async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8>
                 width_px: 8,
                 height_px: request.document.len() as u32,
                 bytes_per_line: 1,
+                dot_per_inch: 300,
                 data: request.document.clone(),
             };
             let job = PrintJob {
