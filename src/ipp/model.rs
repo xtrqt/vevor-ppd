@@ -60,6 +60,13 @@ impl IppRequest {
             .find(|attribute| attribute.name == "document-format")
             .and_then(|attribute| std::str::from_utf8(&attribute.value).ok())
     }
+
+    pub fn get_attribute(&self, name: &str) -> Option<&[u8]> {
+        self.attributes
+            .iter()
+            .find(|attribute| attribute.name == name)
+            .map(|attribute| attribute.value.as_slice())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

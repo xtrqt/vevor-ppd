@@ -51,6 +51,15 @@ pub async fn handle_ipp(
 }
 
 async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8> {
+    if let Some(media) = request.get_attribute("media") {
+        if let Ok(media_str) = std::str::from_utf8(media) {
+            info!(media = media_str, "print job media attribute");
+        }
+    }
+    if let Some(media_col) = request.get_attribute("media-col") {
+        info!(media_col = ?media_col, "print job media-col attribute");
+    }
+
     match request.document_format().as_deref() {
         Some("application/pdf") => printer_attributes(
             state,
@@ -286,12 +295,14 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
             ValueTag::Keyword,
             "media-supported",
             &[
+                "om_40x30mm",
+                "om_100x120mm",
                 "oe_w288h432_4x6in",
                 "oe_w288h288_4x4in",
                 "oe_w144h288_2x4in",
             ],
         )
-        .string(ValueTag::Keyword, "media-default", "oe_w288h432_4x6in")
+        .string(ValueTag::Keyword, "media-default", "om_40x30mm")
         .resolution("printer-resolution-supported", 300, 300)
         .resolution("printer-resolution-default", 300, 300)
         .finish()
