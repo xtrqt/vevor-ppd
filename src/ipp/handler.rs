@@ -1,6 +1,6 @@
 use super::codec::{parse_request, ResponseBuilder};
 use super::model::{IppRequest, Operation, Status, ValueTag};
-use super::pwg_raster::parse_pwg_raster;
+use super::pwg_raster::{parse_pwg_raster, parse_urf_raster};
 use crate::app::AppState;
 use crate::driver::{vevor, LabelOptions, PrintJob, RasterPage};
 use crate::output;
@@ -96,6 +96,48 @@ async fn handle_print_or_send(state: &AppState, request: &IppRequest) -> Vec<u8>
             }
             Err(e) => {
                 error!(error = %e, "failed to parse PWG raster");
+                printer_attributes(state, request, Status::ServerErrorInternalError)
+            }
+        },
+        Some("image/urf") => match parse_urf_raster(&request.document).await {
+            Ok(pages) => {
+                let mut all_pages = Vec::new();
+                for page in pages {
+                    all_pages.push(RasterPage {
+                        width_px: page.width_px,
+                        height_px: page.height_px,
+                        bytes_per_line: page.bytes_per_line,
+                        data: page.data,
+                    });
+                }
+                if all_pages.is_empty() {
+                    return printer_attributes(state, request, Status::ServerErrorInternalError);
+                }
+                let job = PrintJob {
+                    pages: all_pages,
+                    options: LabelOptions::default(),
+                };
+                match vevor::render(&job) {
+                    Ok(bytes) => {
+                        if let Err(e) = output::write_all(&state.config.output_device, &bytes).await
+                        {
+                            error!(error = %e, "failed to write to printer device");
+                            return printer_attributes(
+                                state,
+                                request,
+                                Status::ServerErrorInternalError,
+                            );
+                        }
+                        job_attributes(state, request, Status::SuccessfulOk, 9)
+                    }
+                    Err(e) => {
+                        error!(error = %e, "failed to render URF job");
+                        printer_attributes(state, request, Status::ServerErrorInternalError)
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "failed to parse URF raster");
                 printer_attributes(state, request, Status::ServerErrorInternalError)
             }
         },
@@ -220,7 +262,7 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
         .strings(
             ValueTag::MimeMediaType,
             "document-format-supported",
-            &["image/pwg-raster"],
+            &["image/pwg-raster", "image/urf"],
         )
         .string(
             ValueTag::MimeMediaType,
