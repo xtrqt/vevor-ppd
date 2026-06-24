@@ -220,7 +220,7 @@ fn printer_attributes(state: &AppState, request: &IppRequest, status: Status) ->
         .strings(
             ValueTag::MimeMediaType,
             "document-format-supported",
-            &["image/pwg-raster", "image/urf"],
+            &["image/pwg-raster"],
         )
         .string(
             ValueTag::MimeMediaType,

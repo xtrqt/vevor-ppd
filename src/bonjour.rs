@@ -28,11 +28,7 @@ impl Advertiser {
             ("rp", "ipp/print"),
             ("ty", config.printer_name.as_str()),
             ("product", "(Vevor Label Printer 300)"),
-            ("pdl", "application/pdf,image/urf,image/pwg-raster"),
-            (
-                "URF",
-                "CP1,DM1,IS1-4,MT1-2-8-9-10-11-12-13,OB10,PQ3-4-5,RS300,W8",
-            ),
+            ("pdl", "image/pwg-raster"),
             ("kind", "document,label"),
             ("PaperMax", "legal-A4"),
             ("adminurl", admin_url.as_str()),
